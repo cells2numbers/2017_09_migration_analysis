@@ -1,0 +1,81 @@
+---
+title: "Prepae metadata file for asthma data"
+author: "TB"
+date: "7/28/2017"
+output: html_document
+---
+```{r}
+library("tidyverse")
+library("stringr")
+```
+
+# 
+
+Define folder with time lapse experiments. All folders start with the data of the experiment and are extracted using dir.
+```{r}
+image_folder <-  "/Users/tbecker/Documents/2017_09_migration/images/"
+
+dir_list <- dir(image_folder,pattern = "^[0-9]")
+```
+
+All folder follow the pattern 201612a_kira0094_ltb4_xxng_fn_asthma with
+
+* Metadata_date = 201612a
+* Metadata_id = kira0094
+* Metadata_matrix = fn
+* Metadata_condition = (asthma | asthma-control | onedonor ) 
+* Metadata_attractant = ltb4
+* Metadata_concentration = xxng
+
+The metadata is extracted from the name using str_split and we create a tibble / data frame containing the metadata information and path information for all time lapse experiments.  
+
+```{r}
+metadata_path <-  dir_list %>% 
+  str_split(.,"_") %>%
+  unlist() %>%
+  matrix(., nrow = length(dir_list), byrow = TRUE) %>%
+  as_tibble() %>%
+  rename("Metadata_date" = V1) %>%
+  rename("Metadata_id" = V2) %>%
+  rename("Metadata_attractant" = V3) %>%
+  rename("Metadata_concentration" = V4) %>% 
+  rename("Metadata_matrix" = V5) %>%
+  rename("Metadata_condition" = V6) %>% 
+  mutate(full_path = file.path(image_folder,unlist(dir_list))) %>%
+  mutate(path_name = unlist(dir_list)) 
+```
+
+To combine the single images corresponding to one experiment with the metadata and path information, a file list by executing the command 
+
+```find . -name *png  > image_list.csv```
+
+in the image folder. Each entry stores the path and the image name. Example:
+
+```./20130424_FN_cont_bd0036/20130424_FN_cont_0000.png```
+
+
+```{r}
+file_list <- read_csv(file.path(image_folder,"image_list.csv")) 
+
+metadata_files <- tibble(path_name = unlist(lapply(file_list, dirname)), 
+                         file_name = unlist(lapply(file_list, basename))) %>%
+  mutate(Metadata_frame = as.integer(str_sub(file_name,-7,-4))) %>%
+  mutate(path_name = str_sub(path_name,3,-1)) %>%
+  print
+
+metadata_files %>% group_by(path_name) %>% summarise(s= n()) %>% print
+```
+
+Both  data frames are combined and and an additional columns is inserted to make the data / file_list  compatible with the available CP pipelines.   
+
+```{r}
+metadata <- left_join(metadata_files, metadata_path, by = "path_name") %>%
+  mutate(Metadata_dose = 'None') %>%
+  rename(PathName_neutrophils = full_path) %>%
+  rename(FileName_neutrophils = file_name) %>%
+  select(Metadata_date, Metadata_attractant, Metadata_concentration, Metadata_id, Metadata_condition, Metadata_dose, Metadata_frame, PathName_neutrophils, FileName_neutrophils) %>%
+  print
+```
+```{r}
+write_csv(metadata, file.path(image_folder,"file_list.csv"))
+```
