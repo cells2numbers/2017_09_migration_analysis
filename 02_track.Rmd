@@ -1,0 +1,138 @@
+---
+title: "Prepae metadata file for asthma data"
+author: "TB"
+date: "7/28/2017"
+output: html_document
+---
+```{r}
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+```
+
+# Load data
+The analysis folder contains the segmentation and tracking results. Each 
+time lapse experiment is stored in separate folder.
+```{r}
+analysis_folder <- "../../analysis/sample/20170927_cp3/"
+single_cell_data_file <- "Tracked_detectedNeutros.csv"
+```
+
+# Output 
+Results of neutrominer::track are stored in csv_tracks
+```{r}
+csv_tracks <- 'tracks_cp.csv'
+```
+
+
+# Metadata 
+```{r}
+strata <- c('Metadata_attractant','Metadata_concentration','Metadata_condition',
+            'Metadata_date','Metadata_dose','Metadata_id')
+```
+
+
+# Parameter
+To recalculate the speed of the neutrophils in µm/minute we need the pixel size
+and the number of frames per minute.
+```{r}
+# scale speed from pixel/frame to µm/minute
+pixel_size = 0.7819
+frames_per_second = 2/60
+# frames are recorded each 30 seconds, i.e. 
+speed_scale <- pixel_size * frames_per_second
+
+track_label = c('TrackObjects_Label')
+```
+
+
+# Load data 
+The output of CellProfiler track module is loaded as CSV, tracked using cytominer::track and 
+stored in the data folder as "track.csv". 
+```{r}
+# load csv files from all sub folders 
+df <- data.frame()
+for (iDir in list.dirs(analysis_folder)) {
+  file_name <-  file.path(iDir, single_cell_data_file)
+  print(file_name)
+  if (file.exists(file_name)) {
+    df <- rbind(df,suppressMessages(read_csv(file_name)))
+  }
+}
+
+df %<>% 
+  mutate(Metadata_timePoint = Metadata_frame) %>%
+  dplyr::mutate(Metadata_timePoint = as.double(Metadata_timePoint)) %>%
+  mutate(Metadata_frame = Metadata_timePoint) 
+```
+
+# track the neutros
+```{r}
+tracks <- df %>%
+  group_by_(.dots =  c(strata,track_label)) %>%
+  arrange(Metadata_timePoint) %>%
+  neutrominer::track(., c(strata,track_label))
+```
+
+
+## PostProcessing 
+Calculate speed in µm/minute
+```{r}
+postprocessed <- tracks %>%
+  mutate(Track_Speed = Track_Speed * speed_scale) %>%
+  mutate(Track_Speed_max = Track_Speed_max * speed_scale) %>%
+  mutate(Track_Speed_X = Track_Speed_X * speed_scale) %>%
+  mutate(Track_Speed_Y = Track_Speed_Y * speed_scale) %>%
+  mutate(Track_Distance_Traveled = pixel_size * Track_Distance_Traveled) %>%
+  mutate(Track_Integrated_Distance_Traveled = pixel_size * Track_Integrated_Distance_Traveled) 
+```
+
+
+# Save data 
+* Correct Metadata: all na values are set to 'None'
+* store data 
+```{r}
+postprocessed$Metadata_dose[is.na(postprocessed$Metadata_dose)] <- 'None'
+write_csv(postprocessed, file.path(analysis_folder, csv_tracks))
+```
+
+```{r}
+ quality <- postprocessed %>% 
+  group_by_(.dots = strata) %>%
+    neutrominer::assess(.,min_path_length = 19) %>%
+  arrange(VOT) %>%
+  print
+```
+Two data sets have a low VOT
+* kira 099, asthma, ltb4, 201612a
+* kira 099, asthma, ltb4, 201612b
+* mw, fmlp, 10um, 20170117a
+Both time series are characterized by a different image contrast that can not
+be processes using the CP pipeline. Both data sets should be removed from further analysis! 
+
+```{r}
+quality %>% 
+  filter(  !((Metadata_date == "201612a") & (Metadata_id == "kira099") ) ) %>%
+  filter(  !((Metadata_date == "201612b") & (Metadata_id == "kira099") ) ) %>%
+  filter(  !((Metadata_date == "20170117a") & (Metadata_id == "mw") & (Metadata_attractant == "fmlp") & (Metadata_concentration == "10um") ) ) %>%
+  ungroup() %>%
+  #group_by(Metadata_condition, Metadata_attractant) %>%
+  summarise(mean_vot = mean(VOT), sd_vot = sd(VOT), n = n()) %>%
+  print
+```
+
+```{r}
+quality %>% 
+  filter(Metadata_condition == "control-asthma") %>% 
+  print
+```
+
+
+```{r}
+ggplot(data = quality) +
+  aes(x = VOT, y = Exp_Tracks, color = Metadata_condition, shape = Metadata_attractant) +
+  geom_point()
+```

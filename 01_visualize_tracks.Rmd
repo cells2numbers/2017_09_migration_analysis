@@ -1,0 +1,66 @@
+---
+title: "Prepae metadata file for asthma data"
+author: "TB"
+date: "7/28/2017"
+output: html_document
+---
+```{r}
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+```
+
+# Load data
+Define analysis folder
+```{r}
+analysis_folder <- "../../analysis/sample/20170927_cp3/mw_fmlp_10um_onedonor_20170113a_None/"
+data_file <- "Tracked_detectedNeutros.csv"
+
+single_cell_data <- read_csv(file.path(analysis_folder, data_file)) %>%
+  rename(Metadata_timePoint = Metadata_frame)
+
+View(single_cell_data )
+
+```
+2D plot
+```{}
+ggplot(data = single_cell_data) + 
+  aes( 
+    x = Location_Center_Y, 
+    y = Location_Center_X, 
+    colour = AreaShape_Compactness,  
+    group = TrackObjects_Label) +
+  geom_path() +
+  #geom_point() + 
+  coord_fixed() +
+  theme_void() +
+  theme(panel.border = element_rect(size = 1, colour = "grey30", fill = NA ) ) 
+  
+```
+
+3D plot
+```{r}
+
+plot_ly(single_cell_data, 
+  x = ~Location_Center_X, 
+  y = ~Location_Center_Y, 
+  z = ~Metadata_timePoint,  
+  split = ~TrackObjects_Label, 
+  type = 'scatter3d', 
+  mode = 'lines', 
+  opacity = 1,
+  line = list(width = 1, reverscale = FALSE)
+  )
+
+```
+
+```{r}
+tracks <- single_cell_data %>%
+  group_by(TrackObjects_Label) %>%
+  track(., c("TrackObjects_Label"))
+
+tracks %>% assess(., min_path_length = 20)
+```
