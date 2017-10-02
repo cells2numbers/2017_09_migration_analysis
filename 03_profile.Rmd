@@ -1,0 +1,90 @@
+---
+title: "Prepae metadata file for asthma data"
+author: "TB"
+date: "7/28/2017"
+output: html_document
+---
+```{r}
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+library("magrittr")
+library("caret")
+library("AppliedPredictiveModeling")
+source("utilities.r")
+```
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../analysis/sample/20171001_cp3/"
+csv_tracks <- 'tracks_cp.csv'
+csv_single_cells <- "Tracked_detectedNeutros.csv"
+
+csv_profile <- "profiles.csv"
+```
+
+# Metadata 
+```{r}
+strata <- c('Metadata_attractant','Metadata_concentration','Metadata_condition',
+            'Metadata_date','Metadata_dose','Metadata_id')
+```
+
+# read tracking data 
+```{r}
+population <- read_csv(file.path(analysis_folder, csv_tracks))
+
+tracks <- population %>%  
+  filter(Track_Life_Time > 19) %>% 
+  filter(complete.cases(.))
+```
+
+# Load single cell data 
+The output of CellProfiler track module is loaded as CSV, tracked using cytominer::track and 
+stored in the data folder as "track.csv". 
+```{r}
+# load csv files from all sub folders 
+df <- read_single_cell_data(analysis_folder, csv_single_cells) %>%
+  mutate(Metadata_timePoint = Metadata_frame) %>%
+  dplyr::mutate(Metadata_timePoint = as.double(Metadata_timePoint)) 
+```
+
+# Filter invalid paths 
+The data frame tracks only includes trajectories with a life time =>20 frames
+(>=10 Minutes). All small tracks are removed from the single cell data, too.
+```{r}
+morphology <- semi_join(df, tracks, by = c(strata,"TrackObjects_Label"))
+```
+
+# Define feature columns
+```{r}
+feature_cols <- setdiff(
+  colnames(morphology) %>%
+  stringr::str_subset("^AreaShape_|^RadialDistribution|^Track"),
+  "TrackObjects_Label")
+```
+
+# Profiling 
+Create profiles / aggregate trajectories
+```{r}
+bad_columns <- cytominer::drop_na_columns(
+  population = morphology,
+  variables = feature_cols
+)
+
+
+profile <-
+  cytominer::aggregate(
+    population = morphology %>% select(c(strata,"TrackObjects_Label",setdiff(feature_cols, bad_columns))),
+    variables = setdiff(feature_cols, bad_columns),
+    strata = c(strata,"TrackObjects_Label")
+  ) 
+```
+
+# Store as CSV
+```{r}
+write_csv(profile, file.path(analysis_folder, csv_profile))
+```

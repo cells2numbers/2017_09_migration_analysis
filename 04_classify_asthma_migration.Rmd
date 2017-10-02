@@ -1,0 +1,109 @@
+---
+title: "Prepae metadata file for asthma data"
+author: "TB"
+date: "7/28/2017"
+output: html_document
+---
+```{r}
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+library("magrittr")
+library("caret")
+library("ellipse")
+library("AppliedPredictiveModeling")
+```
+
+# Metadata 
+```{r}
+strata <- c('Metadata_attractant','Metadata_concentration','Metadata_condition',
+            'Metadata_date','Metadata_dose','Metadata_id')
+```
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../analysis/sample/20170927_cp3/"
+csv_tracks <- 'tracks_cp.csv'
+
+population <- read_csv(file.path(analysis_folder, csv_tracks)) %>% 
+  filter(Track_Life_Time > 19) %>% 
+  filter(Metadata_condition == "asthma" | Metadata_condition == "control-asthma") %>%
+  filter(Metadata_attractant == "ltb4") %>%
+  filter( !((Metadata_id == "kira453") & (Metadata_date == "201612b")) ) %>%
+  filter( !((Metadata_id == "kira095") & (Metadata_date == "201612b")) ) %>%
+  filter( !((Metadata_id == "kira094") & (Metadata_date == "201612b"))) %>%
+  filter( !((Metadata_date == "201612a") & (Metadata_id == "kira099") ) ) %>%
+  filter( !((Metadata_date == "201612b") & (Metadata_id == "kira099") ) ) %>%
+  filter( !((Metadata_date == "201612") & (Metadata_id == "kira462") & (Metadata_concentration == "1ul") ) ) %>%
+  group_by_(.dots = strata)
+```
+
+Aggregate data for each experiment
+```{r}
+feature_cols <- 
+  colnames(population) %>%
+  stringr::str_subset("^Track_") 
+
+aggregated <-
+  cytominer::aggregate(
+    population = population,
+    variables = feature_cols,
+    strata =  c('Metadata_attractant','Metadata_concentration','Metadata_condition',
+            'Metadata_dose','Metadata_id')
+  ) 
+```
+
+In which experiment do we observe the fastest neutros? 
+```{r}
+aggregated %>% 
+  filter(Metadata_condition == "asthma" | Metadata_condition == "control-asthma") %>%
+  filter(Metadata_attractant == "ltb4") %>%
+  filter(Metadata_id != "kira453") %>%
+  arrange(-Track_Speed) %>% 
+  filter(Track_Life_Time > 19) %>%
+  print
+```
+```{r}
+aggregated %>% 
+  ggplot() +
+  aes(x = Track_Speed, y = Track_xFMI, shape = Metadata_concentration, color = Metadata_condition) + 
+  geom_point() + 
+  geom_text(aes(label=Metadata_id), size=3, position=position_nudge(x = 0, y = 0.02) )
+```
+
+# create asthma data set
+```{r}
+asthma <- aggregated %>% 
+  ungroup() %>%
+  dplyr::select(Metadata_condition, Track_CI, Track_Directionality, Track_xFMI, Track_Speed, Track_yFMI, Track_Distance_Traveled) %>%
+  dplyr::mutate(Metadata_condition = as.factor(Metadata_condition)) %>%
+  dplyr::rename(class = Metadata_condition)
+```
+
+# Feature plot
+```{r}
+transparentTheme(trans = .5)
+featurePlot(x = asthma[, 2:7], 
+            y = asthma$class, 
+            plot = "ellipse",
+            ## Add a key at the top
+            auto.key = list(columns = 2)
+  )
+```
+
+# Train LDA classifier 
+```{r}
+set.seed(768)
+
+train_control = trainControl(method = "LOOCV")
+  
+lda_model <- train(class~., data = asthma, 
+                 method = "lda", 
+                 trControl = train_control,
+                 verbose = FALSE)
+lda_model
+```

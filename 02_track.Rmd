@@ -11,14 +11,15 @@ library("readr")
 library("plotly")
 library("ggplot2")
 library("neutrominer")
+source("utilities.r")
 ```
 
 # Load data
 The analysis folder contains the segmentation and tracking results. Each 
 time lapse experiment is stored in separate folder.
 ```{r}
-analysis_folder <- "../../analysis/sample/20170927_cp3/"
-single_cell_data_file <- "Tracked_detectedNeutros.csv"
+analysis_folder <- "../../analysis/sample/20171001_cp3/"
+csv_single_cells <- "Tracked_detectedNeutros.csv"
 ```
 
 # Output 
@@ -54,25 +55,37 @@ The output of CellProfiler track module is loaded as CSV, tracked using cytomine
 stored in the data folder as "track.csv". 
 ```{r}
 # load csv files from all sub folders 
-df <- data.frame()
-for (iDir in list.dirs(analysis_folder)) {
-  file_name <-  file.path(iDir, single_cell_data_file)
-  print(file_name)
-  if (file.exists(file_name)) {
-    df <- rbind(df,suppressMessages(read_csv(file_name)))
-  }
-}
+df <- read_single_cell_data(analysis_folder, csv_single_cells) 
 
-df %<>% 
+df %>% 
   mutate(Metadata_timePoint = Metadata_frame) %>%
-  dplyr::mutate(Metadata_timePoint = as.double(Metadata_timePoint)) %>%
-  mutate(Metadata_frame = Metadata_timePoint) 
+  dplyr::mutate(Metadata_timePoint = as.double(Metadata_timePoint)) 
+```
+```{r}
+df %>% filter(Metadata_id == "kira462") %>%
+  ungroup() %>% 
+  group_by(Metadata_concentration) %>% 
+  slice(1)
+```
+
+
+# remove bad frames
+```{r}
+clean <- df %>%
+  filter( !((Metadata_id == "kira453") & (Metadata_date == "201612a") &  (Metadata_frame < 10) ) )  %>%
+  filter( !((Metadata_id == "kira459") & (Metadata_date == "201612b") &  (Metadata_frame < 10) ) ) %>%
+  filter( !((Metadata_id == "kira462") & (Metadata_concentration == "1ul") &  (Metadata_frame < 30) ) ) %>%
+  filter( !((Metadata_id == "kira456") & (Metadata_date == "201612b") &  (Metadata_frame < 10) ) ) %>%
+  filter( !((Metadata_id == "kira456") & (Metadata_date == "201612c") &  (Metadata_frame < 10) ) ) %>%
+  print
+
 ```
 
 # track the neutros
 ```{r}
-tracks <- df %>%
+tracks <- clean %>%
   group_by_(.dots =  c(strata,track_label)) %>%
+  rename(Metadata_timePoint = Metadata_frame) %>%
   arrange(Metadata_timePoint) %>%
   neutrominer::track(., c(strata,track_label))
 ```
