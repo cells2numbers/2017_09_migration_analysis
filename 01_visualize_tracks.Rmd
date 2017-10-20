@@ -11,19 +11,23 @@ library("readr")
 library("plotly")
 library("ggplot2")
 library("neutrominer")
+library("magrittr")
 ```
 
 # Load data
 Define analysis folder
 ```{r}
-analysis_folder <- "../../analysis/sample/20170927_cp3/kira459_ltb4_xxng_control-asthma_201612b_None/"
+analysis_folder <- "../../analysis/sample/20171001_sample_cp3/"
 csv_single_cells <- "Tracked_detectedNeutros.csv"
 
 single_cell_data <- read_csv(file.path(analysis_folder, csv_single_cells)) %>%
-  rename(Metadata_timePoint = Metadata_frame)
+  rename(Metadata_timePoint = Metadata_frame) %>%
+  mutate(Metadata_timePoint = as.double(Metadata_timePoint))
 
 
 ```
+
+
 2D plot
 ```{r}
 ggplot(data = single_cell_data) + 
@@ -37,13 +41,17 @@ ggplot(data = single_cell_data) +
   coord_fixed() +
   theme_void() +
   theme(panel.border = element_rect(size = 1, colour = "grey30", fill = NA ) ) 
+
   
 ```
 
 3D plot
 ```{r}
 
-plot_ly(single_cell_data, 
+df <- single_cell_data %>% select(Location_Center_Y, Location_Center_X,TrackObjects_Label, Metadata_timePoint ) 
+
+
+plot_ly(df, 
   x = ~Location_Center_X, 
   y = ~Location_Center_Y, 
   z = ~Metadata_timePoint,  
@@ -51,7 +59,7 @@ plot_ly(single_cell_data,
   type = 'scatter3d', 
   mode = 'lines', 
   opacity = 1,
-  line = list(width = 1, reverscale = FALSE)
+  line = list(width = 2, reverscale = FALSE)
   )
 
 ```

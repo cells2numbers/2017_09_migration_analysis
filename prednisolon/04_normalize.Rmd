@@ -1,0 +1,164 @@
+---
+title: "Prepae metadata file for asthma data"
+author: "TB"
+date: "7/28/2017"
+output: html_document
+---
+```{r}
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+library("magrittr")
+library("caret")
+library("AppliedPredictiveModeling")
+source("../utilities.r")
+```
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../../analysis/20171006/"
+csv_tracks <- "tracks_cp.csv"
+csv_profile <- "profiles.csv"
+
+csv_clean_tracks <- "normalized_tracks.csv"
+csv_clean_profile <- "normalized_profile.csv"
+
+```
+
+# Metadata 
+```{r}
+strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_id','Metadata_matrix', 'TrackObjects_Label')
+```
+
+# read tracking data 
+```{r}
+migration <- read_csv(file.path(analysis_folder, csv_tracks)) %>% 
+  filter(Track_Life_Time > 19)
+
+profile <- read_csv(file.path(analysis_folder, csv_profile))
+```
+# select features 
+Select feature names and remove double entries marked with a _1 (these are introduced by CP)
+```{r}
+feature_cols <- base::setdiff(
+  colnames(profile) %>%
+    stringr::str_subset("^Area|^Radial|^Texture|^Track"),
+  colnames(profile) %>%
+    stringr::str_subset("_1")
+)
+
+feature_cols <- setdiff(feature_cols, "TrackObjects_Label")
+```
+
+# remove na columns
+```{r}
+feature_cols <- setdiff(feature_cols, 
+  cytominer::drop_na_columns(
+    population = profile,
+    variables = feature_cols,
+    cutoff = 0
+  )
+)
+```
+
+# remove na rows
+```{r}
+clean_profile <- cytominer::drop_na_rows(
+  population = profile, 
+  variables = feature_cols
+  )
+```
+
+# remove zero variance features
+```{r}
+feature_cols <- setdiff(
+  feature_cols, 
+  cytominer::variance_threshold(
+    sample = clean_profile, 
+    variables = feature_cols
+  )
+)
+```
+
+# remove correlated feature 
+We use the findCorrelation method from the caret package 
+```{r}
+feature_cols_final <- setdiff(feature_cols,
+  clean_profile %>% 
+  ungroup() %>% 
+  select_(.dots = feature_cols) %>%
+  as.matrix() %>%
+  cor(.) %>%
+  findCorrelation(.,cutoff = 0.95, names = TRUE)
+)
+```
+
+# normalize morphological profiles  
+```{r}
+normalized_profile <- cytominer::normalize(
+    population = clean_profile,
+    variables = feature_cols_final,
+    strata =  "Metadata_id",
+    sample = clean_profile %>% filter(Metadata_condition == "vehi"),
+    operation = "robustize"
+)
+
+normalized_profile %<>% 
+  select_(.dots = c(strata, feature_cols_final))
+```
+
+
+# check for bad features
+```{r}
+feature_cols_bad <- cytominer::drop_na_columns(
+  population = normalized_profile, 
+  variables = feature_cols_final, 
+  cutoff = .05
+)
+
+normalized_profile_final <- normalized_profile %>% 
+  select_(.dots = c(strata, setdiff(feature_cols_final, feature_cols_bad)))
+```
+
+# -----------------------------------------------------------------------------
+# normalize migration profiles
+```{r}
+migration_features <- colnames(migration) %>%
+    stringr::str_subset("^Track") 
+
+migration_features <- setdiff(
+  migration_features, 
+  c("TrackObjects_Label","Track_One_Cell","Track_Length","Track_Life_Time","Track_Sector",
+    "Track_Positive_Sector","Track_Negative_Sector","Track_Neutral_Sector_Up","Track_Neutral_Sector_Down")
+)
+  
+normalized_migration <- cytominer::normalize(
+   population = migration,
+    variables = migration_features,
+    strata =  "Metadata_id",
+    sample = migration %>% filter(Metadata_condition == "vehi"),
+    operation = "robustize"
+)
+
+```
+
+
+# check for bad features
+```{r}
+feature_cols_bad <- cytominer::drop_na_columns(
+  population = normalized_profile, 
+  variables = feature_cols_final, 
+  cutoff = .05
+)
+```
+
+
+# Store as CSV
+```{r}
+write_csv(normalized_profile_final, file.path(analysis_folder, csv_clean_profile))
+write_csv(normalized_migration, file.path(analysis_folder, csv_clean_tracks))
+```

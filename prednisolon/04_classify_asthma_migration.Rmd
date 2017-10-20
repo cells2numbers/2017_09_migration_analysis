@@ -52,7 +52,7 @@ aggregated <-
   cytominer::aggregate(
     population = population,
     variables = feature_cols,
-    strata =   c('Metadata_attractant','Metadata_concentration','Metadata_condition','Metadata_dose','Metadata_id')
+    strata =  strata #c('Metadata_attractant','Metadata_concentration','Metadata_condition','Metadata_dose','Metadata_id')
   ) 
 ```
 

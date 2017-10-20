@@ -1,0 +1,417 @@
+---
+title: "06_combine_migration_and_CP_features"
+author: "TB"
+date: "7/27/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("magrittr")
+library("knitr")
+library("corrplot")
+library("stringr")
+library("heatmaply")
+library("SNFtool")
+source("../utilities.R")
+library("reshape2")
+```
+
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../../analysis/20171006/"
+
+csv_clean_tracks <- "normalized_tracks.csv"
+csv_clean_profile <- "normalized_profile.csv"
+```
+
+# read and arrange data to make sure they are in the same order
+```{r}
+profile <- read_csv(file.path(analysis_folder, csv_clean_profile)) %>%
+  arrange(Metadata_matrix, Metadata_condition, Metadata_id) %>%
+  filter(
+    Metadata_condition %in% c("vehi","pred"),
+    Metadata_matrix %in% c("HEM","FN")
+    ) %>%
+  select(-Metadata_dose, -Metadata_date)
+
+tracks <- read_csv(file.path(analysis_folder, csv_clean_tracks)) %>%
+  arrange(Metadata_matrix, Metadata_condition, Metadata_id) %>%
+  filter(Track_Length > 19) %>%
+    filter(
+    Metadata_condition %in% c("vehi","pred"),
+    Metadata_matrix %in% c("HEM","FN")
+    ) %>% 
+  select(-Metadata_dose, -Metadata_date)
+```
+
+
+# Metadata 
+```{r}
+strata <- c('Metadata_condition','Metadata_id','Metadata_matrix','TrackObjects_Label')
+```
+
+
+# feature columns
+```{r}
+feature_cols <- colnames(profile) %>%
+    stringr::str_subset("^Area")
+```
+
+# drop na columns
+```{r}
+feature_cols <- setdiff(
+  feature_cols,
+  cytominer::drop_na_columns(
+    population = profile,
+    variables = feature_cols
+  )
+)
+```
+
+# set rownames and calculate distance matrix 
+```{r}
+row.names(profile) <- profile %>% 
+  mutate(id = str_c(Metadata_id, Metadata_matrix, Metadata_condition, TrackObjects_Label, sep = ' ')) %>%
+  extract2("id")
+
+dist_morphology <- profile %>%
+  ungroup() %>%
+  select_(.dots = feature_cols) %>%
+  dist() %>%
+  as.matrix()
+```
+
+
+# migration 
+```{r}
+feature_migration = c("Track_Speed","Track_Speed_Y","Track_Speed_X","Track_xFMI","Track_yFMI","Track_Directionality","Track_Distance_Traveled","Track_CI") 
+
+row.names(tracks) <- tracks %>% 
+  mutate(id = str_c(Metadata_id, Metadata_matrix, Metadata_condition, TrackObjects_Label, sep = ' ')) %>%
+  extract2("id")
+
+dist_migration <- tracks %>%
+  ungroup() %>%
+  #filter(Metadata_matrix == "HEM") %>%
+  select_(.dots = feature_migration) %>%
+  dist(.)  %>%
+  as.matrix()
+```
+
+# Calculate affinity matrices using SNFtool package
+```{r}
+W1 <- affinityMatrix(dist_morphology, K = 20, sigma = 0.5)
+W2 <- affinityMatrix(dist_migration, K = 20, sigma = 0.5)
+```
+
+# Display affinity matrix for morgphological features 
+```{}
+displayClustersWithHeatmap(W1, spectralClustering(W1, K = 5))
+```
+
+
+```{}
+
+ W = SNF(list(W1,W2), 30, 40)
+
+strata2 <- c('Metadata_condition','Metadata_matrix','Metadata_id')
+
+metadata_rows <- tracks %>% 
+  ungroup() %>%
+  select_(.dots = strata2) 
+
+
+
+fsa_w <- fraction_strong_affinity(
+  W = W,
+  metadata_rows = metadata_rows, 
+  strata = strata2
+  ) %>% 
+  print
+
+
+fsa_w1 <- fraction_strong_affinity(
+  W = W1,
+  metadata_rows = metadata_rows, 
+  strata = strata2
+  ) %>% 
+  print
+
+
+fsa_w2 <- fraction_strong_affinity(
+  W = W2,
+  metadata_rows = metadata_rows, 
+  strata = strata2
+  ) %>% 
+  print
+
+
+```
+
+```{r}
+# remove affinity values close to zero
+df <- affinity %>%
+  filter(sigma > 0.02)
+
+ggplot(df, aes(x = sigma, y = K)) +
+  geom_raster(aes(fill = fraction_strong)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_bw() + theme(axis.text.x=element_text(size = 9, angle=0, vjust=0.3),
+                     axis.text.y=element_text(size = 9),
+                     plot.title=element_text(size = 11))
+
+ggsave("mean_affinity.png",device = "png")
+```
+
+
+###############################################################################
+```{r}
+get_values_null_distribution <- function(metadata_rows, W, meta_condition, meta_matrix, strata){
+  df <- cbind(metadata_rows, W) %>%
+    filter(
+      Metadata_condition == meta_condition,
+      Metadata_matrix == meta_matrix) %>%
+    select_(.dots = paste("-", strata)) %>%
+    t
+  
+  threshold <- cbind(metadata_rows, df) %>%
+    filter(
+      Metadata_condition != meta_condition,
+      Metadata_matrix != meta_matrix) %>%
+    select_(.dots = paste("-", strata)) %>%
+    as.matrix() %>%
+    c()
+}
+  
+
+get_values_control <- function(metadata_rows, W, meta_condition, meta_matrix, strata){
+  
+  df <- cbind(metadata_rows, W) %>%
+    filter(
+      Metadata_condition == meta_condition,
+      Metadata_matrix == meta_matrix ) %>%
+    select_(.dots = paste("-", strata)) %>%
+    t
+  
+
+  threshold <- cbind(metadata_rows, df) %>%
+    filter(
+      Metadata_condition == meta_condition,
+      Metadata_matrix == meta_matrix) %>%
+    select_(.dots = paste("-", strata)) %>%
+    as.matrix() %>% 
+    c()
+}
+
+
+
+
+
+get_null_threshold <- function(W_temp,metadata_rows, strata){
+  threshold <- c(
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "FN",
+      strata = strata
+    ),
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "HEM",
+      strata = strata
+    ),
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "vehi",
+      meta_matrix = "FN",
+      strata = strata
+    ),
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "vehi",
+      meta_matrix = "HEM",
+      strata = strata
+    )
+  ) %>%
+    quantile(0.95)
+}
+
+
+```
+
+```{r}
+strata2 <- c('Metadata_condition','Metadata_matrix')
+
+metadata_rows <- profile %>% 
+  ungroup() %>%
+  select_(.dots = strata2) 
+    
+    
+affinity = tibble()
+for (sigma in seq(.05,1,.05)) {
+  for (neighbours in seq(2,40,2)) {
+    
+    W1 <- affinityMatrix(dist_morphology, K = neighbours, sigma = sigma)
+    W2 <- affinityMatrix(dist_migration, K = neighbours, sigma = sigma)
+    W = SNF(list(W1,W2), neighbours, 20)
+  
+    W_temp <- W
+    
+    threshold_w <- get_null_threshold(W_temp, metadata_rows = metadata_rows, strata = strata2)
+    
+    t1 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "FN",
+      strata = strata2
+    )
+    
+     affinity <- tibble(
+       fs =sum(t1 > threshold_w) / length(t1),
+       sigma = sigma, 
+       K = neighbours  
+       ) %>%
+     rbind(.,affinity) 
+  }
+  print(sigma)
+}
+```
+
+```{r}
+# remove affinity values close to zero
+df <- affinity %>%
+  filter(sigma > 0.02)
+
+ggplot(df %>% rename(fraction_strong = fs), aes(x = sigma, y = K)) +
+  geom_raster(aes(fill = fraction_strong)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_bw() + theme(axis.text.x = element_text(size = 9, angle = 0, vjust = 0.3),
+                     axis.text.y = element_text(size = 9),
+                     plot.title = element_text(size = 11))
+
+ggsave(filename = '/Users/tbecker/Downloads/ISBI2018template/affinity.png')
+```
+
+```{r}
+best_affinity_sigma <- affinity %>% 
+  arrange(-fs) %>% 
+  slice(1) %>%
+  extract2("sigma")
+
+best_affinity_K <- affinity %>% 
+  arrange(-fs) %>% 
+  slice(1) %>%
+  extract2("K")
+
+affinity %>% 
+  arrange(-fs) %>% 
+  slice(1) %>%
+  print
+```
+
+
+```{r}
+
+
+W1 <- affinityMatrix(dist_morphology, K = best_affinity_K, sigma = best_affinity_sigma)
+W2 <- affinityMatrix(dist_migration, K = best_affinity_K, sigma = best_affinity_sigma)
+W <-  SNF(list(W1,W2), best_affinity_K, 20)
+  
+W_temp <- 0.5 * (W1 + W2)
+    
+threshold_w <- get_null_threshold(W_temp, metadata_rows = metadata_rows, strata = strata2)
+    
+```
+
+```{r}
+
+W_temp <- 0.5 * (W1 + W2)
+    
+
+    
+threshold_w <- get_null_threshold(W_temp, metadata_rows = metadata_rows, strata = strata2)
+
+
+t1 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "vehi",
+      meta_matrix = "FN",
+      strata = strata2
+    )
+    
+fs <- ( sum(t1 > threshold_w) / length(t1)) %>%
+  print
+
+
+t1 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "FN",
+      strata = strata2
+    )
+    
+fs <- ( sum(t1 > threshold_w) / length(t1)) %>%
+  print
+
+
+
+t1 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "vehi",
+      meta_matrix = "HEM",
+      strata = strata2
+    )
+    
+fs <-  (sum(t1 > threshold_w) / length(t1)) %>%
+  print
+
+
+t1 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "HEM",
+      strata = strata2
+    )
+    
+fs <-  (sum(t1 > threshold_w) / length(t1))  %>% print
+
+
+
+```
+Morphology 
+[1] 0.07773787
+[1] 0.07434145
+[1] 0.0972348
+[1] 0.07389442
+
+Migration
+[1] 0.09592565
+[1] 0.06902985
+[1] 0.1063722
+[1] 0.08476978
+
+ (W1+W2)/2
+[1] 0.09437259
+[1] 0.07964608
+[1] 0.1225159
+[1] 0.09366166
+
+SNF
+[1] 0.1069063
+[1] 0.1787007
+[1] 0.1580532
+[1] 0.1613965

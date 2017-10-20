@@ -1,0 +1,265 @@
+---
+title: "load_data"
+author: "TB"
+date: "5/15/2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+library("magrittr")
+library("corrplot")
+library("Rtsne")
+source("../utilities.r")
+source("../windrose.r")
+```
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../../analysis/20171006/"
+
+csv_clean_tracks <- "tracks_cp.csv"
+csv_clean_profile <- "normalized_profile.csv"
+
+profile <- read_csv(file.path(analysis_folder, csv_clean_profile))
+tracks <- read_csv(file.path(analysis_folder, csv_clean_tracks))
+```
+
+```{r}
+profile %>% 
+  ungroup() %>% 
+  filter(Metadata_condition %in% c("vehi","pred")) %>%
+  group_by(Metadata_condition,Metadata_matrix) %>%
+   summarise(
+    n_tracks = n(),
+    #mean_speed = mean(Track_Speed), sd_speed = sd(Track_Speed),
+    #mean_xfmi =  mean(Track_xFMI), sd_xfmi  = sd(Track_xFMI),
+    #mean_directionality = mean(Track_Directionality), sd(Track_Directionality),
+    n = n()
+  ) 
+
+  
+  
+```
+
+# Metadata 
+```{r}
+strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_id','Metadata_matrix')
+```
+
+# feature columns
+```{r}
+feature_cols <- colnames(profile) %>%
+    stringr::str_subset("^Area")
+```
+
+# drop na columns
+```{r}
+feature_cols <- setdiff(
+  feature_cols,
+  cytominer::drop_na_columns(
+    population = profile,
+    variables = feature_cols
+  )
+)
+```
+
+# cluster data sets
+cytominer is used to extract some subpopulations 
+```{r}
+reference <- profile %>% 
+  filter(Metadata_condition %in% c("vehi") ) %>% 
+  filter(Metadata_matrix %in% c("HEM","FN") ) 
+  #select_(.dots = feature_cols)
+
+population <- profile %>% 
+  filter( Metadata_condition %in% c("pred") ) %>% 
+  filter(Metadata_matrix %in% c("FN","HEM") ) 
+  #select_(.dots = feature_cols)
+
+set.seed(42)
+
+clusteranalysis <- cytominer::extract_subpopulations(
+  population = population, 
+  reference = reference, 
+  variables = feature_cols, 
+  k = 10
+  ) %>% print
+```
+# collect clustered data
+The results for the clustering are stored in two data frames 
+1. clusteranalysis$population_clusters and 
+2. clusteranalysis$reference_clusters
+Both are collected in the data frame subpopulation
+```{r}
+subpopulation <- rbind(clusteranalysis$population_clusters, clusteranalysis$reference_clusters)
+```
+
+# grouped subpopulations 
+Based on the given clusting the function grouped_clusters calculates the cluster distribution for a given set of grouping variables
+```{r}
+grouped_clusters <- function(population, strata) {
+  result <- left_join(
+    population,
+    population %>% 
+      group_by_(.dots = strata) %>%
+      summarise(cluster_size = n()), 
+    by = strata
+  )  %>% 
+    group_by_(.dots = c(strata, "cluster_id")) %>%
+    summarise(no_tracks = n(), cluster_size = mean(cluster_size)) %>% 
+    mutate(fraction = no_tracks / cluster_size) 
+}
+```
+
+Call grouped_clusters for our data frame.
+```{r}
+strata = c("Metadata_condition","Metadata_matrix")
+
+clusters <- grouped_clusters(
+  population = subpopulation,
+    strata = c(strata,"Metadata_id")
+    ) %>%
+  mutate(id = paste(Metadata_matrix, Metadata_condition, sep = ' ')) %>% print
+```
+
+# visualize different cluster distribution
+As histogram next to each other 
+```{r}
+cluster_plot <- clusters %>%
+  rename(condition = "Metadata_condition")
+
+cluster_plot[cluster_plot=="vehi"]<-"None"
+cluster_plot[cluster_plot=="pred"]<-"Prednisolone"
+
+ggplot(data = cluster_plot ) + 
+  aes(x = cluster_id, y = fraction, fill = condition) + 
+  geom_col(position = "dodge") + 
+  facet_wrap(~ Metadata_matrix)
+
+ggsave("cluster_histogram.png")
+```
+
+stagged 
+```{r}
+ggplot(data = clusters) + 
+  aes(x = id, y = fraction, color = cluster_id, fill = cluster_id) +
+  geom_col()
+```
+
+# add cluster centers to data points 
+The data is splitted in 
+```{r}
+population_tracks <- tracks %>% 
+  filter( Metadata_condition %in% c("vehi","pred") ) %>% 
+  filter( Metadata_matrix %in% c("FN","HEM") ) 
+```
+
+# Join morphological data and migration data
+```{r}
+population_tracks_cluster <- left_join(
+  subpopulation,
+   population_tracks, 
+  by =  c("Metadata_matrix", "Metadata_condition", "Metadata_id","TrackObjects_Label")  
+  ) %>%
+  group_by_(.dots = c("Metadata_matrix", "Metadata_condition","Metadata_id","cluster_id"))
+```
+
+# Patient based distribution 
+```{r}
+population_tracks_cluster %>% 
+  summarise(
+    mean_speed = mean(Track_Speed),
+    mean_xfmi =  mean(Track_xFMI),
+    mean_directionality = mean(Track_Directionality)
+  ) %>% 
+  filter(
+    cluster_id %in% c(4,8,11,13,19,20),
+    Metadata_condition == "vehi"
+    )
+```
+
+```{r}
+population_tracks_cluster %>%
+  ungroup() %>% 
+  filter(
+    cluster_id %in% c(4,8,11,13,19,20),
+    Metadata_matrix %in% c("FN")
+    ) %>%
+  group_by_(.dots = c("Metadata_condition","Metadata_matrix","cluster_id")) %>%
+   summarise(
+    mean_speed = mean(Track_Speed), sd_speed = sd(Track_Speed),
+    mean_xfmi =  mean(Track_xFMI), sd_xfmi  = sd(Track_xFMI),
+    mean_directionality = mean(Track_Directionality), sd(Track_Directionality),
+    n = n()
+  ) 
+```
+classical analysis
+```{r}
+population_tracks_cluster %>% 
+  ungroup() %>% 
+  filter(Metadata_condition %in% c("vehi","pred")) %>%
+  group_by(Metadata_condition,Metadata_matrix) %>%
+   summarise(
+    n_tracks = n(),
+    mean_speed = mean(Track_Speed), sd_speed = sd(Track_Speed),
+    mean_xfmi =  mean(Track_xFMI), sd_xfmi  = sd(Track_xFMI),
+    mean_directionality = mean(Track_Directionality), sd(Track_Directionality)
+  ) 
+
+```
+
+# Extract trajectories
+Extract tracks corresponsing to the 5 cells that are closest to the clusters 4,5,7,9. We use the reference run in FN with condition == "vehicle". We use the 
+* cluster_id and the 
+* dist_to_cluster
+to find the best trajectories.
+```{r}
+close_to_cluster_center <- subpopulation %>% 
+  filter(
+    Metadata_matrix == "FN",
+    Metadata_condition == "vehi",
+    cluster_id %in% c(4,5,7,9)
+    ) %>% 
+  select_(.dots = c(strata,"Metadata_id", "cluster_id", "dist_to_cluster", "TrackObjects_Label" )) %>%
+  ungroup() %>% 
+  group_by(cluster_id) %>%
+  arrange(dist_to_cluster) %>%
+  slice(seq(1,3,1)) %>% 
+  print
+  
+```
+Load single cell data 
+```{r}
+single_cell_data <- read_csv(file.path(analysis_folder,'Tracked_detectedNeutros.csv'))
+```
+Now we merge the single cell data and the tracks closest to the cluster centers
+```{r}
+
+complete_data <- left_join(
+  close_to_cluster_center, 
+  single_cell_data %>% 
+    add_metadata_matrix, 
+  by =  c(strata,"Metadata_id", "TrackObjects_Label" )
+  ) 
+
+complete_data %>% select(Metadata_condition, Metadata_matrix, Metadata_id, Metadata_dose, Metadata_frame, TrackObjects_Label, AreaShape_Center_X, AreaShape_Center_Y, cluster_id, TrackObjects_Lifetime ) %>% 
+  group_by_(.dots = c(strata,"Metadata_id", "TrackObjects_Label")) %>% 
+  arrange(-Metadata_frame) %>%
+  slice(1)
+
+```
+Plot velocity vs area
+```{r}
+ggplot(data = subpopulation) +
+  aes(x = )
+```

@@ -1,0 +1,130 @@
+---
+title: "load_data"
+author: "TB"
+date: "5/15/2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+library("magrittr")
+library("corrplot")
+library("Rtsne")
+```
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../../analysis/20171006/"
+
+csv_clean_tracks <- "normalized_tracks.csv"
+csv_clean_profile <- "normalized_profile.csv"
+
+profile <- read_csv(file.path(analysis_folder, csv_clean_profile))
+```
+
+# Metadata 
+```{r}
+strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_matrix','Metadata_id')
+```
+
+# feature columns
+```{r}
+all_feature_cols <- colnames(profile) %>%
+    stringr::str_subset("^Area")
+  
+bad_cols <- cytominer::drop_na_columns(
+  population = profile ,
+  variables = all_feature_cols,
+  cutoff = 0
+)
+
+feature_cols <- setdiff( 
+  colnames(profile) %>%
+    stringr::str_subset("^Area|^Radial|^Texture"),
+  bad_cols
+)
+```
+
+# remove zero variance features 
+```{r}
+bad_cols_variance <- cytominer::variance_threshold(
+  sample = profile,
+  variables = feature_cols
+)
+
+feature_cols <- setdiff( 
+feature_cols,
+  bad_cols_variance
+)
+```
+
+# Aggregate data to experiments
+```{r}
+aggregated <- cytominer::aggregate(
+  population = profile,
+  variables = feature_cols,
+  strata = strata,
+  operation = "mean"
+)
+
+feature_cols_aggregated <- setdiff( 
+  colnames(aggregated) %>%
+    stringr::str_subset("^Area"),
+  "RadialDistribution_ZernikePhase_neutrosIlluCorrected_2_0_mean"
+)
+```
+
+# Visualize data using tsne and pca
+```{r}
+HEM <- aggregated %>% 
+  filter(Metadata_matrix %in% c("FN","HEM"))
+
+train <- HEM %>% 
+  filter(Metadata_matrix %in% c("FN","HEM")) %>%
+  ungroup() %>% 
+  select_(.dots = feature_cols_aggregated)
+
+tsne <- Rtsne(train, perplexity = 10, verbose = TRUE, max_iter = 500, theta = .5, pca_scale = TRUE,initial_dims = 100)
+
+```
+
+```{r}
+Y <- as.data.frame(tsne$Y)
+
+  df = cbind(as.data.frame(Y),
+             as.data.frame(aggregated %>% filter(Metadata_matrix %in% c("FN","HEM"))))
+
+  print(ggplot(data = df %>% filter(Metadata_condition %in% c("vehi","pred")), aes(x = V1, y = V2, size = 20, shape = Metadata_matrix, color = factor(Metadata_condition))) +
+      geom_point() +
+      xlab("") + 
+      ylab("") +
+      ggtitle("t-SNE") +
+      guides(colour = guide_legend(override.aes = list(size = 6))) +
+      theme_light(base_size = 20) +
+      theme(axis.text.x = element_blank(),
+            axis.text.y = element_blank()) + 
+      labs(title = sprintf('Migration clustered with perplexity %i', tsne$perplexity )))  
+   
+```
+  print(ggplot(data = df %>% filter(Metadata_condition %in% c("pred")), aes(x = V1, y = V2, size = 10, color = factor(Metadata_id))) +
+      geom_hex() +
+      xlab("") + 
+      ylab("") +
+      ggtitle("t-SNE") +
+      guides(colour = guide_legend(override.aes = list(size = 6))) +
+      theme_light(base_size = 20) +
+      theme(axis.text.x = element_blank(),
+            axis.text.y = element_blank()) + 
+      labs(title = sprintf('Migration clustered with perplexity %i', tsne$perplexity ))) 
+   
+  
+```

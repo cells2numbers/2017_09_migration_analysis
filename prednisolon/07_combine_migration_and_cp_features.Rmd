@@ -1,0 +1,289 @@
+---
+title: "06_combine_migration_and_CP_features"
+author: "TB"
+date: "7/27/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("magrittr")
+library("knitr")
+library("corrplot")
+library("stringr")
+library("heatmaply")
+library("SNFtool")
+source("../utilities.R")
+library("reshape2")
+```
+
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../../analysis/20171006/"
+
+csv_clean_tracks <- "tracks_cp.csv"
+csv_clean_profile <- "normalized_profile.csv"
+```
+
+# read and arrange data to make sure they are in the same order
+```{r}
+profile <- read_csv(file.path(analysis_folder, csv_clean_profile)) %>%
+  arrange(Metadata_matrix, Metadata_condition, Metadata_id)
+
+tracks <- read_csv(file.path(analysis_folder, csv_clean_tracks)) %>%
+  arrange(Metadata_matrix, Metadata_condition, Metadata_id) %>%
+  filter(Track_Length > 19)
+```
+
+
+# Metadata 
+```{r}
+strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_id','Metadata_matrix')
+```
+
+
+# feature columns
+```{r}
+feature_cols <- colnames(profile) %>%
+    stringr::str_subset("^Area")
+```
+
+# drop na columns
+```{r}
+feature_cols <- setdiff(
+  feature_cols,
+  cytominer::drop_na_columns(
+    population = profile,
+    variables = feature_cols
+  )
+)
+```
+
+# Collapse data per patient
+```{r}
+aggregated_morphology <- cytominer::aggregate(
+    population = profile,
+    variables = feature_cols,
+    strata = strata,
+    operation = "median"
+  ) %>% collect()
+```
+
+# update features 
+```{r}
+feature_morphology <- colnames(aggregated_morphology) %>% 
+   stringr::str_subset("^Area") %>%
+  print
+```
+
+# set rownames and calculate distance matrix 
+```{r}
+row.names(aggregated_morphology) <- aggregated_morphology %>% 
+  mutate(id = str_c(Metadata_id, Metadata_matrix, Metadata_condition, Metadata_dose, sep = ' ')) %>%
+  extract2("id")
+
+dist_morphology <- aggregated_morphology %>%
+  ungroup() %>%
+  #filter(Metadata_matrix == "HEM") %>%
+  select_(.dots = feature_morphology) %>%
+  dist() %>%
+  as.matrix()
+```
+
+
+# migration 
+```{r}
+feature_cols_migration = c("Track_Speed","Track_Speed_Y","Track_Speed_X","Track_xFMI","Track_yFMI","Track_Directionality","Track_Distance_Traveled","Track_CI") 
+
+aggregated_migration <- cytominer::aggregate(
+    population = tracks,
+    variables = feature_cols_migration,
+    strata = strata,
+    operation = "median"
+  ) %>% collect()
+
+feature_migration <- colnames(aggregated_migration) %>%
+  stringr::str_subset("^Track") %>%
+  print
+
+row.names(aggregated_migration) <- aggregated_migration %>% 
+  mutate(id = str_c(Metadata_id, Metadata_matrix, Metadata_condition, Metadata_dose, sep = ' ')) %>%
+  extract2("id")
+
+dist_migration <- aggregated_migration %>%
+  ungroup() %>%
+  #filter(Metadata_matrix == "HEM") %>%
+  select_(.dots = feature_migration) %>%
+  dist(.)  %>%
+  as.matrix()
+```
+
+# Calculate affinity matrices using SNFtool package
+```{r}
+W1 <- affinityMatrix(dist_morphology, K = 20, sigma = 0.5)
+W2 <- affinityMatrix(dist_migration, K = 20, sigma = 0.5)
+```
+
+# Display affinity matrix for morgphological features 
+```{r}
+displayClustersWithHeatmap(W1, spectralClustering(W1, K = 5))
+```
+# Display affinity matrix for migration features 
+```{r}
+displayClustersWithHeatmap(W2, spectralClustering(W2, K = 5))
+```
+
+```{r}
+sigma = 0.5
+for (sigma in seq(0.3, 0.7, 0.1)) {
+  for (neighbours in seq(5,20,5)) {
+    
+    W1 <- affinityMatrix(dist_morphology, K = neighbours, sigma = sigma)
+    W2 <- affinityMatrix(dist_migration, K = neighbours, sigma = sigma)
+    W = SNF(list(W1,W2), neighbours, 40)
+    
+    
+    row.names(W) <- aggregated_migration %>% 
+      mutate(id = str_c(Metadata_id, Metadata_matrix, Metadata_condition, Metadata_dose, sep = ' ')) %>%
+      extract2("id")
+    displayClustersWithHeatmap(W, spectralClustering(W, K = 10))
+  }
+}
+```
+
+
+```{r}
+metadata_rows <- aggregated_migration %>% 
+  ungroup() %>%
+  select_(.dots = strata) 
+
+group_by = c("Metadata_matrix", "Metadata_condition")
+
+fraction_strong_affinity(W,metadata_rows, group_by)
+
+affinity = tibble()
+for (sigma in seq(.1, 1, .1)) {
+  for (neighbours in seq(2,15,1)) {
+   
+    W1 <- affinityMatrix(dist_morphology, K = neighbours, sigma = sigma)
+    W2 <- affinityMatrix(dist_migration, K = neighbours, sigma = sigma)
+    W = SNF(list(W1,W2), neighbours, 20)
+    
+    affinity <-  fraction_strong_affinity(W,metadata_rows, group_by) %>%
+      mutate(sigma = sigma, K = neighbours) %>%
+      rbind(.,affinity)
+  }
+  print(c(sigma,neighbours))
+}
+```
+
+```{r}
+# remove affinity values close to zero
+df <- affinity %>%
+  filter(sigma > 0.02)
+
+ggplot(df, aes(x = sigma, y = K)) +
+  geom_raster(aes(fill = mean_affinity)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  theme_bw() + theme(axis.text.x=element_text(size=9, angle=0, vjust=0.3),
+                     axis.text.y=element_text(size=9),
+                     plot.title=element_text(size=11))
+
+ggsave("mean_affinity.png",device = "png")
+```
+
+ggplot(df, aes(x = sigma, y = K)) +
+  geom_raster(aes(fill = threshold)) +
+  scale_fill_gradient(low = "white", high = "red") + 
+  theme_bw() + theme(axis.text.x=element_text(size=9, angle=0, vjust=0.3),
+                     axis.text.y=element_text(size=9),
+                     plot.title=element_text(size=11))
+
+ggsave("null_threshold.png",device = "png")
+
+ggplot(df, aes(x = sigma, y = K)) +
+  geom_raster(aes(fill = fraction_strong)) +
+  scale_fill_gradient(low = "white", high = "red") + 
+  theme_bw() + theme(axis.text.x=element_text(size=9, angle=0, vjust=0.3),
+                     axis.text.y=element_text(size=9),
+                     plot.title=element_text(size=11)) + 
+  labs( y = "neighbours K")
+
+ggsave("fraction_strong.png",device = "png")
+```
+```{r}
+affinity %>% 
+  arrange(-fraction_strong) %>%
+  slice(1:40)
+  print()
+```
+
+```{r}
+ fraction_strong_affinity(W1,metadata_rows, group_by)
+ fraction_strong_affinity(W2,metadata_rows, group_by)
+```
+```{r}
+  W1 <- affinityMatrix(dist_cp, K = 4, sigma = 0.94)
+    W2 <- affinityMatrix(dist_migration, K = 4, sigma = 0.94)
+    W = SNF(list(W1,W2), 4, 20, parallel = FALSE)
+    
+    
+    row.names(W) <- aggregated_migration %>% 
+      mutate(id = str_c(Metadata_id, Metadata_matrix, Metadata_condition, Metadata_dose, sep = ' ')) %>%
+      extract2("id")
+    displayClustersWithHeatmap(W, spectralClustering(W, K = 10))
+```
+
+
+#################################################
+
+This time we use the data collapsed to tracks to calculate the affinity matrix
+
+
+```{r}
+dist_tracks_cp <- population_cp %>%
+  ungroup() %>%
+  filter(Metadata_matrix == "HEM") %>%
+  filter(Metadata_condition == "CP17") %>%
+  filter(Metadata_id == "BD0069" ) %>%
+  select_(.dots = feature_cp) %>%
+  dist() %>%
+  as.matrix()
+
+
+dist_tracks_migration <- population_migration %>%
+  ungroup() %>%
+  filter(Metadata_matrix == "HEM") %>%
+  filter(Metadata_condition == "CP17") %>%
+    filter(Metadata_id == "BD0069" ) %>%
+  select_(.dots = feature_migration) %>%
+  dist() %>%
+  as.matrix()
+
+```
+
+
+```{r}
+K = 10
+sigma = 1
+
+W1_tracks <- affinityMatrix(dist_tracks_cp, K = K, sigma = sigma)
+W2_tracks <- affinityMatrix(dist_tracks_migration, K = K, sigma = sigma)
+
+displayClustersWithHeatmap(W1_tracks, spectralClustering(W1_tracks, K = 6))
+displayClustersWithHeatmap(W2_tracks, spectralClustering(W2_tracks, K = 6))
+
+W = SNF(list(W1_tracks,W2_tracks), K, 20, parallel = FALSE)
+
+row.names(W) <- population_migration %>% 
+  filter(Metadata_matrix == "HEM") %>%
+  filter(Metadata_condition == "CP17") %>%
+  filter(Metadata_id == "BD0069" ) %>%
+  mutate(id = str_c(Metadata_dose, TrackObjects_Label_30, sep = ' ')) %>%
+  extract2("id")
+displayClustersWithHeatmap(W, spectralClustering(W, K = 24))
+
+```

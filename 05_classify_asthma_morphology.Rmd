@@ -19,7 +19,7 @@ library("AppliedPredictiveModeling")
 # Load data
 Analysis folder and tracked data 
 ```{r}
-analysis_folder <- "../../analysis/sample/20171001_cp3/"
+analysis_folder <- "../../analysis/20171001_cp3/"
 csv_profile <- 'profiles.csv'
 
 population <- read_csv(file.path(analysis_folder, csv_profile)) %>%
@@ -42,9 +42,10 @@ strata <- c('Metadata_attractant','Metadata_concentration','Metadata_condition',
 
 # remove double entries (introduced by CP)
 ```{r}
+
 feature_cols <- base::setdiff(
   colnames(population) %>%
-    stringr::str_subset("^Area|^Radial|^Track"),
+    stringr::str_subset("^Area|^Radial|^Texture"),
   colnames(population) %>%
     stringr::str_subset("_1")
 )
@@ -74,6 +75,18 @@ null_variance_features <- cytominer::variance_threshold(
   print
 
 feature_cols <- setdiff(feature_cols, null_variance_features)
+
+used_feature_names <- setdiff(feature_cols,
+clean %>% 
+  ungroup() %>% 
+  select_(.dots = feature_cols) %>%
+  as.matrix() %>%
+  cor(.) %>%
+  findCorrelation(.,cutoff =0.95, names = TRUE)
+)
+
+
+
 ```
 
 Aggregate data for each experiment
@@ -81,7 +94,7 @@ Aggregate data for each experiment
 aggregated <-
   cytominer::aggregate(
     population = clean,
-    variables = feature_cols,
+    variables = used_feature_names,
     strata = c('Metadata_attractant','Metadata_concentration','Metadata_condition','Metadata_dose','Metadata_id')
   )
 ```
@@ -89,13 +102,16 @@ aggregated <-
 ```{r}
 asthma <- aggregated %>% 
   ungroup() %>%
-  dplyr::select_(.dots = c("Metadata_condition", feature_cols )) %>%
+  dplyr::select_(.dots = c("Metadata_condition", used_feature_names )) %>%
   dplyr::mutate(Metadata_condition = as.factor(Metadata_condition)) %>%
   dplyr::rename(class = Metadata_condition) %>%
    dplyr::select(
-   -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_7_7,
+   -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_6_6,
+  # -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_7_7,
    -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_8_8,
-   -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_9_9
+   -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_9_9,
+  # -RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_5_5
+  #RadialDistribution_ZernikeMagnitude_neutrosIlluCorrected_9_9
     ) %>%
   print
  
@@ -105,7 +121,7 @@ Create simple test data set
 
 cnames <- colnames(asthma)
 
-set.seed(768)
+set.seed(123)
 
 train_control = trainControl(method = "LOOCV")
   
@@ -114,4 +130,16 @@ lda_model <- train(class~., data = asthma,
                  trControl = train_control,
                  verbose = FALSE)
 lda_model
+```
+
+
+```{r}
+data_asthma <- clean %>%
+  ungroup() %>%
+  select_(.dots = c('Metadata_condition',used_feature_names)) %>%
+  mutate(Metadata_condition = as.factor(Metadata_condition))
+
+res.man <- manova(as.matrix(data_asthma[,used_feature_names]) ~ Metadata_condition, data = data_asthma) %>% print
+
+summary(res.man)
 ```

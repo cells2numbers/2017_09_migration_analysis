@@ -14,14 +14,14 @@ library("neutrominer")
 library("magrittr")
 library("caret")
 library("AppliedPredictiveModeling")
-source("utilities.r")
+source("../utilities.r")
 ```
 
 # Load data
 Analysis folder and tracked data 
 ```{r}
-analysis_folder <- "../../analysis/20171001_cp3/"
-csv_tracks <- 'tracks_cp.csv'
+analysis_folder <- "../../../analysis/20171006/"
+csv_tracks <- "tracks_cp.csv"
 csv_single_cells <- "Tracked_detectedNeutros.csv"
 
 csv_profile <- "profiles.csv"
@@ -29,8 +29,7 @@ csv_profile <- "profiles.csv"
 
 # Metadata 
 ```{r}
-strata <- c('Metadata_attractant','Metadata_concentration','Metadata_condition',
-            'Metadata_date','Metadata_dose','Metadata_id')
+strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_id','Metadata_matrix')
 ```
 
 # read tracking data 
@@ -49,7 +48,11 @@ stored in the data folder as "track.csv".
 # load csv files from all sub folders 
 df <- read_single_cell_data(analysis_folder, csv_single_cells) %>%
   mutate(Metadata_timePoint = Metadata_frame) %>%
-  dplyr::mutate(Metadata_timePoint = as.double(Metadata_timePoint))
+  dplyr::mutate(Metadata_timePoint = as.double(Metadata_timePoint)) %>%
+  filter(Metadata_timePoint > 19)
+
+df %<>% add_metadata_matrix()
+
 ```
 
 # Filter invalid paths 
@@ -80,10 +83,9 @@ profile <-
     population = morphology %>% select(c(strata,"TrackObjects_Label",setdiff(feature_cols, bad_columns))),
     variables = setdiff(feature_cols, bad_columns),
     strata = c(strata,"TrackObjects_Label"),
-    operation = "mean"
+    operation = "mean+sd"
   ) 
 ```
-
 
 # Store as CSV
 ```{r}

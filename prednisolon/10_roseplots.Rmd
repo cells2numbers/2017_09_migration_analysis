@@ -1,0 +1,88 @@
+---
+title: "load_data"
+author: "TB"
+date: "5/15/2017"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("stringr")
+library("readr")
+library("plotly")
+library("ggplot2")
+library("neutrominer")
+library("magrittr")
+library("corrplot")
+library("Rtsne")
+```
+
+# Load data
+Analysis folder and tracked data 
+```{r}
+analysis_folder <- "../../../analysis/20171006/"
+
+csv_tracks <- "tracks_cp.csv"
+csv_clean_profile <- "Tracked_detectedNeutros.csv"
+
+tracks <- read_csv(file.path(analysis_folder, csv_tracks))
+
+profile <- read_csv(file.path(analysis_folder, csv_clean_profile))
+
+
+ features <- colnames(profile) %>%
+    stringr::str_subset("^Area")
+```
+
+# Metadata 
+```{r}
+strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_matrix','Metadata_id')
+```
+
+```{r}
+source("../windrose.r")
+
+population <- tracks %>%
+  filter(Track_Length > 19) %>%
+  mutate(Track_Angle = Track_Angle + pi/2) %>% # rotate all angles by 90 degree or pi/2
+  mutate(Track_Angle = ifelse(Track_Angle > pi, Track_Angle - 2*pi, Track_Angle) ) %>%
+  mutate(Track_Angle = ifelse(Track_Angle < 0, Track_Angle + 2*pi, Track_Angle) ) 
+
+FN_c <-  population %>% 
+  filter(Metadata_condition == "vehi") %>%
+  filter(Metadata_matrix == "HEM") %>% 
+  filter(Track_Speed < .25)
+
+FN_p <-  population %>% 
+  filter(Metadata_condition == "pred") %>%
+  filter(Metadata_matrix == "HEM") %>% 
+  filter(Track_Speed < .25)
+
+
+
+spdmin <- 0
+spdmax <- .25
+spdres <- .05
+dirres <- 90
+spdscale <- 1.5638 # factor to convert speed from pixel / frame to mum / min
+
+h1 <- plot.windrose(spd = FN_p$Track_Speed, dir = (180 * (FN_p$Track_Angle) / pi), 
+  spdmin = spdmin, spdmax = spdmax, spdres = spdres, dirres = dirres, title_name = "HEM / Prednisolone ")
+
+h2 <- plot.windrose(spd = FN_c$Track_Speed, dir = (180 * (FN_c$Track_Angle) / pi), 
+  spdmin = spdmin, spdmax = spdmax, spdres = spdres, dirres = dirres, title_name = "HEM / control")
+
+#ggsave(filename =  "/Users/tbecker/Downloads/ISBI2018template/test.png", plot = h2, scale = 2 )
+```
+
+
+# speed distribution
+```{r}
+population %>% 
+  ungroup() %>%
+  group_by(Metadata_matrix, Metadata_condition) %>% 
+  summarise(mean_speed = mean(Track_Speed), sd_speed = sd(Track_Speed))
+```
