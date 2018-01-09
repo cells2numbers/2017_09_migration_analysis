@@ -29,6 +29,18 @@ csv_clean_profile <- "normalized_profile.csv"
 
 ```
 
+Assess tracking quality
+```{r}
+track_data <- read_csv(file.path(analysis_folder, csv_tracks)) %>% 
+  group_by_(.dots = strata) %>%
+  neutrominer::assess(
+    .,
+    20,
+    c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_id','Metadata_matrix')
+    ) %>%
+  arrange(-VOT) %>% 
+  print
+```
 # Metadata 
 ```{r}
 strata <- c('Metadata_condition','Metadata_date','Metadata_dose','Metadata_id','Metadata_matrix', 'TrackObjects_Label')

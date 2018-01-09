@@ -17,20 +17,33 @@ library("magrittr")
 # Load data
 Define analysis folder
 ```{r}
-analysis_folder <- "../../analysis/sample/20171001_sample_cp3/"
+analysis_folder <- "../../analysis/20171006/"
 csv_single_cells <- "Tracked_detectedNeutros.csv"
 
-single_cell_data <- read_csv(file.path(analysis_folder, csv_single_cells)) %>%
+population <- read_csv(file.path(analysis_folder, csv_single_cells)) %>%
   rename(Metadata_timePoint = Metadata_frame) %>%
-  mutate(Metadata_timePoint = as.double(Metadata_timePoint))
+  mutate(Metadata_timePoint = as.double(Metadata_timePoint)) 
+```
+
+```{r}
+single_cell_data <- population %>%
+    filter(
+      Metadata_condition == "vehi",
+      Metadata_id == "bd0037",
+      )
 
 
 ```
 
+best track 
+pred	20130909	None	gn0048	HEM
+
 
 2D plot
 ```{r}
-ggplot(data = single_cell_data) + 
+ggplot(
+  data = single_cell_data
+  ) + 
   aes( 
     x = Location_Center_Y, 
     y = Location_Center_X, 
@@ -48,21 +61,37 @@ ggplot(data = single_cell_data) +
 3D plot
 ```{r}
 
-df <- single_cell_data %>% select(Location_Center_Y, Location_Center_X,TrackObjects_Label, Metadata_timePoint ) 
+df <- single_cell_data %>% 
+    select(Location_Center_Y, Location_Center_X,TrackObjects_Label, Metadata_timePoint ) %>%
+  rename(Zeit = Metadata_timePoint ) %>%
+  rename(Standpunkt_X = Location_Center_X) %>% 
+  rename(Standpunkt_Y = Location_Center_Y) %>%
+  mutate(Zeit = Zeit / 2)
 
+df %>% print(Standpunkt_Y) %>% print
+```
+
+```{r}
+
+t <- list(
+  family = "sans serif",
+  size = 16,
+  color = 'blue')
 
 plot_ly(df, 
-  x = ~Location_Center_X, 
-  y = ~Location_Center_Y, 
-  z = ~Metadata_timePoint,  
+  x = ~Standpunkt_X, 
+  y = ~Standpunkt_Y, 
+  z = ~Zeit,  
   split = ~TrackObjects_Label, 
   type = 'scatter3d', 
   mode = 'lines', 
   opacity = 1,
   line = list(width = 2, reverscale = FALSE)
-  )
+  ) %>% 
+    layout(font=t)
 
 ```
+
 
 ```{r}
 tracks <- single_cell_data %>%

@@ -16,6 +16,7 @@ library("heatmaply")
 library("SNFtool")
 source("../utilities.R")
 library("reshape2")
+library("Rtsne")
 ```
 
 
@@ -104,11 +105,57 @@ dist_migration <- tracks %>%
 
 # Calculate affinity matrices using SNFtool package
 ```{r}
-W1 <- affinityMatrix(dist_morphology, K = 20, sigma = 0.5)
-W2 <- affinityMatrix(dist_migration, K = 20, sigma = 0.5)
+W1 <- affinityMatrix(dist_morphology, K = 26, sigma = 0.4)
+W2 <- affinityMatrix(dist_migration, K = 26, sigma = 0.4)
+
+W = SNF(list(W1,W2), 26, 20)
+```
+
+# tsne plot 
+```{r}
+tsne_morph <- Rtsne(dist_morphology, perplexity = 50, verbose = TRUE, max_iter = 5000, theta = 0, pca_scale = TRUE, is_distance = TRUE)
+tsne_migr <- Rtsne(dist_migration, perplexity = 50, verbose = TRUE, max_iter = 5000, theta = 0, pca_scale = TRUE, is_distance = TRUE)
+
+tsne_w1 <- Rtsne(W1, perplexity = 50, verbose = TRUE, max_iter = 5000, theta = 0, pca_scale = TRUE, is_distance = FALSE)
+tsne_w2 <- Rtsne(W2, perplexity = 50, verbose = TRUE, max_iter = 5000, theta = 0, pca_scale = TRUE, is_distance = FALSE)
+
+tsne_w <- Rtsne(W, perplexity = 50, verbose = TRUE, max_iter = 5000, theta = 0, pca_scale = TRUE, is_distance = TRUE)
+
+
+
+
+```
+Visualize tsne
+```{r}
+
+plot_tsne <- function(tsne, profile){
+  Y <- as.data.frame(tsne$Y)
+  df <- cbind(Y,profile )
+  
+  print(ggplot(data = df) +
+      aes(x = V1, y = V2,size = 20, shape = Metadata_condition, color = factor(Metadata_id)) +
+      geom_point() +
+      xlab("") + 
+      ylab("") +
+      ggtitle("t-SNE") +
+      guides(colour = guide_legend(override.aes = list(size = 6))) +
+      theme_light(base_size = 20) +
+      theme(axis.text.x = element_blank(),
+            axis.text.y = element_blank()) + 
+      labs(title = sprintf('tsne, perplexity %i', tsne$perplexity ))) 
+}
+
+
+plot_tsne(tsne_morph, profile)
+plot_tsne(tsne_migr, profile)
+plot_tsne(tsne_w1, profile)
+plot_tsne(tsne_w2, profile)
+plot_tsne(tsne_w, profile)
+plot_tsne(tsne_ww, profile)
 ```
 
 # Display affinity matrix for morgphological features 
+
 ```{}
 displayClustersWithHeatmap(W1, spectralClustering(W1, K = 5))
 ```
@@ -245,6 +292,38 @@ get_null_threshold <- function(W_temp,metadata_rows, strata){
     quantile(0.95)
 }
 
+get_null_distribution <- function(W_temp,metadata_rows, strata){
+  nd <- c(
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "FN",
+      strata = strata
+    ),
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "pred",
+      meta_matrix = "HEM",
+      strata = strata
+    ),
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "vehi",
+      meta_matrix = "FN",
+      strata = strata
+    ),
+    get_values_null_distribution(
+      metadata_rows = metadata_rows,
+      W = W_temp,
+      meta_condition = "vehi",
+      meta_matrix = "HEM",
+      strata = strata
+    )
+  ) 
+}
 
 ```
 
@@ -321,7 +400,8 @@ affinity %>%
 
 
 ```{r}
-
+best_affinity_K <- 26
+best_affinity_sigma <- 0.4 
 
 W1 <- affinityMatrix(dist_morphology, K = best_affinity_K, sigma = best_affinity_sigma)
 W2 <- affinityMatrix(dist_migration, K = best_affinity_K, sigma = best_affinity_sigma)
@@ -389,8 +469,6 @@ t1 <-  get_values_control(
     
 fs <-  (sum(t1 > threshold_w) / length(t1))  %>% print
 
-
-
 ```
 Morphology 
 [1] 0.07773787
@@ -415,3 +493,87 @@ SNF
 [1] 0.1787007
 [1] 0.1580532
 [1] 0.1613965
+
+```{r}
+
+t3 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W,
+      meta_condition = "vehi",
+      meta_matrix = "HEM",
+      strata = strata2
+    )
+
+t4 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W,
+      meta_condition = "pred",
+      meta_matrix = "HEM",
+      strata = strata2
+    )
+
+
+t1 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W,
+      meta_condition = "vehi",
+      meta_matrix = "FN",
+      strata = strata2
+    )
+
+t2 <-  get_values_control(
+      metadata_rows = metadata_rows,
+      W = W,
+      meta_condition = "pred",
+      meta_matrix = "FN",
+      strata = strata2
+    )
+
+nd <- get_null_distribution(W, metadata_rows = metadata_rows, strata = strata2)
+```
+
+```{r}
+hist(sample(nd,100),20)
+hist(sample(t1,100),20)
+```
+
+```{r}
+wilcox.test(sample(nd,100),sample(t1,100))
+
+```
+```{r}
+n_sample <- 1000
+
+nd_sample <- sample(nd,n_sample) #  null distribution
+t1_sample <- sample(t1,n_sample) # FN control
+t2_sample <- sample(t2,n_sample) # FN prednisolon
+t3_sample <- sample(t3,n_sample) # HEM control
+t4_sample <- sample(t4,n_sample) # HEM prednisolon
+
+1 - ecdf(nd_sample)(mean(t1_sample))
+1 - ecdf(nd_sample)(mean(t2_sample))
+1 - ecdf(nd_sample)(mean(t3_sample))
+1 - ecdf(nd_sample)(mean(t4_sample))
+```
+```{r}
+plot(ecdf(nd_sample))
+plot(ecdf(t1_sample))
+```
+```{r}
+
+n_sample <- 1000
+
+nd_sampling_dist_of_mean <- 
+  replicate(1000, mean(sample(nd, n_sample)))
+
+t1_sample_dist_of_mean <- 
+  replicate(1000, mean(sample(t1,n_sample)))
+
+1 - mean(ecdf(nd_sampling_dist_of_mean)(t1_sample_dist_of_mean))
+
+
+```
+
+```{r}
+hist(ecdf(nd_sampling_dist_of_mean)(t1_sample_dist_of_mean),100)
+```

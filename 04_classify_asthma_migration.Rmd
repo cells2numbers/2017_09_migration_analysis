@@ -52,7 +52,7 @@ aggregated <-
   cytominer::aggregate(
     population = population,
     variables = feature_cols,
-    strata =   c('Metadata_attractant','Metadata_concentration','Metadata_condition','Metadata_dose','Metadata_id')
+    strata =   c('Metadata_attractant','Metadata_concentration','Metadata_condition','Metadata_dose','Metadata_id','Metadata_date')
   ) 
 ```
 
@@ -61,16 +61,15 @@ In which experiment do we observe the fastest neutros?
 aggregated %>% 
   filter(Metadata_condition == "asthma" | Metadata_condition == "control-asthma") %>%
   filter(Metadata_attractant == "ltb4") %>%
-  filter(Metadata_id != "kira453") %>%
-  arrange(-Track_Speed) %>% 
-  filter(Track_Life_Time > 19) %>%
+  #filter(Metadata_id != "kira453") %>%
+  arrange(-Track_Speed_mean) %>% 
   print
 ```
 ```{r}
 aggregated %>% 
   ggplot() +
-  aes(x = Track_Speed, y = Track_xFMI, shape = Metadata_concentration, color = Metadata_condition) + 
-  geom_point() + 
+  aes(x = Track_Speed_mean, y = Track_xFMI_mean, shape = Metadata_concentration, color = Metadata_condition) + 
+  geom_point() +
   geom_text(aes(label=Metadata_id), size=3, position=position_nudge(x = 0, y = 0.02) )
 ```
 
@@ -104,5 +103,5 @@ lda_model <- train(class~., data = asthma,
                  method = "lda", 
                  trControl = train_control,
                  verbose = FALSE)
-lda_model
+
 ```

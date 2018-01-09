@@ -49,7 +49,7 @@ bad_cols <- cytominer::drop_na_columns(
 
 feature_cols <- setdiff( 
   colnames(profile) %>%
-    stringr::str_subset("^Area|^Radial|^Texture"),
+    stringr::str_subset("^Area"),
   bad_cols
 )
 ```
@@ -85,15 +85,15 @@ feature_cols_aggregated <- setdiff(
 
 # Visualize data using tsne and pca
 ```{r}
-HEM <- aggregated %>% 
+HEM <- profile %>% 
   filter(Metadata_matrix %in% c("FN","HEM"))
 
 train <- HEM %>% 
   filter(Metadata_matrix %in% c("FN","HEM")) %>%
   ungroup() %>% 
-  select_(.dots = feature_cols_aggregated)
+  select_(.dots = feature_cols)
 
-tsne <- Rtsne(train, perplexity = 10, verbose = TRUE, max_iter = 500, theta = .5, pca_scale = TRUE,initial_dims = 100)
+tsne <- Rtsne(train, perplexity = 50, verbose = TRUE, max_iter = 500, theta = 0, pca_scale = TRUE, initial_dims = 52)
 
 ```
 
@@ -101,7 +101,7 @@ tsne <- Rtsne(train, perplexity = 10, verbose = TRUE, max_iter = 500, theta = .5
 Y <- as.data.frame(tsne$Y)
 
   df = cbind(as.data.frame(Y),
-             as.data.frame(aggregated %>% filter(Metadata_matrix %in% c("FN","HEM"))))
+             as.data.frame(profile %>% filter(Metadata_matrix %in% c("FN","HEM"))))
 
   print(ggplot(data = df %>% filter(Metadata_condition %in% c("vehi","pred")), aes(x = V1, y = V2, size = 20, shape = Metadata_matrix, color = factor(Metadata_condition))) +
       geom_point() +
@@ -112,7 +112,7 @@ Y <- as.data.frame(tsne$Y)
       theme_light(base_size = 20) +
       theme(axis.text.x = element_blank(),
             axis.text.y = element_blank()) + 
-      labs(title = sprintf('Migration clustered with perplexity %i', tsne$perplexity )))  
+      labs(title = sprintf('tsne of morphological profiles, perplexity %i', tsne$perplexity )))  
    
 ```
   print(ggplot(data = df %>% filter(Metadata_condition %in% c("pred")), aes(x = V1, y = V2, size = 10, color = factor(Metadata_id))) +

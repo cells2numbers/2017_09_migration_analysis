@@ -40,6 +40,8 @@ population <- read_csv(file.path(analysis_folder, csv_tracks))
 tracks <- population %>%  
   filter(Track_Life_Time > 19) %>% 
   filter(complete.cases(.))
+
+tracks %>% group_by(Metadata_attractant, Metadata_id) %>% summarise(xfmi = mean(Track_xFMI))
 ```
 
 # Load single cell data 

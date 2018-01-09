@@ -30,7 +30,7 @@ csv_clean_profile <- "Tracked_detectedNeutros.csv"
 
 tracks <- read_csv(file.path(analysis_folder, csv_tracks))
 
-profile <- read_csv(file.path(analysis_folder, csv_clean_profile))
+profile <- read_csv(file.path(analysis_folder, csv_clean_profile),n_max = 10)
 
 
  features <- colnames(profile) %>%
@@ -53,12 +53,12 @@ population <- tracks %>%
 
 FN_c <-  population %>% 
   filter(Metadata_condition == "vehi") %>%
-  filter(Metadata_matrix == "HEM") %>% 
+  filter(Metadata_matrix == "FN") %>% 
   filter(Track_Speed < .25)
 
 FN_p <-  population %>% 
   filter(Metadata_condition == "pred") %>%
-  filter(Metadata_matrix == "HEM") %>% 
+  filter(Metadata_matrix == "FN") %>% 
   filter(Track_Speed < .25)
 
 
@@ -66,14 +66,14 @@ FN_p <-  population %>%
 spdmin <- 0
 spdmax <- .25
 spdres <- .05
-dirres <- 90
+dirres <- 30
 spdscale <- 1.5638 # factor to convert speed from pixel / frame to mum / min
 
 h1 <- plot.windrose(spd = FN_p$Track_Speed, dir = (180 * (FN_p$Track_Angle) / pi), 
-  spdmin = spdmin, spdmax = spdmax, spdres = spdres, dirres = dirres, title_name = "HEM / Prednisolone ")
+  spdmin = spdmin, spdmax = spdmax, spdres = spdres, dirres = dirres, title_name = "FN / Prednisolone ")
 
 h2 <- plot.windrose(spd = FN_c$Track_Speed, dir = (180 * (FN_c$Track_Angle) / pi), 
-  spdmin = spdmin, spdmax = spdmax, spdres = spdres, dirres = dirres, title_name = "HEM / control")
+  spdmin = spdmin, spdmax = spdmax, spdres = spdres, dirres = dirres, title_name = "FN / control")
 
 #ggsave(filename =  "/Users/tbecker/Downloads/ISBI2018template/test.png", plot = h2, scale = 2 )
 ```
