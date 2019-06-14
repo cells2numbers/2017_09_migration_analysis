@@ -213,7 +213,7 @@ ggplot(df, aes(x = sigma, y = K)) +
   labs( y = "neighbours K")
 
 ggsave("fraction_strong.png",device = "png")
-```
+
 ```{r}
 affinity %>% 
   arrange(-fraction_strong) %>%
@@ -225,6 +225,7 @@ affinity %>%
  fraction_strong_affinity(W1,metadata_rows, group_by)
  fraction_strong_affinity(W2,metadata_rows, group_by)
 ```
+
 ```{r}
   W1 <- affinityMatrix(dist_cp, K = 4, sigma = 0.94)
     W2 <- affinityMatrix(dist_migration, K = 4, sigma = 0.94)
